@@ -1,5 +1,5 @@
 # pymrghost
-python implmenetation of MRI EPI ghost correction
+python implementation of MRI EPI ghost correction, partial Fourier reconstruction, and other common functions.
 
 # Usage
 Pass 2d multislice epi k-space data with dimensions of [Kx, Ky, Slice, Coil] to the function `oneDimLinearCorr_entropy` for entropy-based referenceless Nyquist ghost correction. (may not work well for accelerated data though)
