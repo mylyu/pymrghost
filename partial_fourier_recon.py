@@ -44,7 +44,11 @@ Contact:
 For issues, suggestions or improvements, kindly reach out to the email mentioned above.
 """
 import numpy as np
-from scipy.fftpack import fftn, ifftn, fftshift, ifftshift
+try:
+    from pyfftw.interfaces.numpy_fft import fftn, ifftn, fftshift, ifftshift
+except ImportError:
+    from scipy.fft import fftn, ifftn, fftshift, ifftshift
+        
 from scipy.signal.windows import hann
 
 def pf_recon_pocs_ms2d(ksp_kxkycz, iter, full_nX=None):
@@ -101,7 +105,7 @@ def pocs_pf(kspaceInput, iter):
 %               With Nc == number of receive Channels / Coils.
     """
     Ndim = kspaceInput.ndim
-
+    # print(f"{kspaceInput.flags=}")
     # Check for the right dimensionality of the input data
     if Ndim > 4 or Ndim < 2:
         raise ValueError("First input 'kspace' should have one of these shapes: Ny x Nx, Nc x Ny x Nx, or Nc x Ny x Nx x Nz")
@@ -154,32 +158,35 @@ def pocs_pf(kspaceInput, iter):
     kspLowRes = cmshiftnd(kspLowRes, [0, sz[0] // 2, sz[1] // 2, sz[2] // 2])
 
     # Reorder arrays for faster memory access
-    kspaceInput = np.moveaxis(kspaceInput, 0, -1) # move coil to last
-    kspLowRes = np.moveaxis(kspLowRes, 0, -1) # move coil to last
-    subs  = [*subs[1:],subs[0]]
+    #print(f"{kspaceInput.shape=}", f"{kspLowRes.shape=}") # Coil, kx, ky, kz
+    # kspaceInput = np.moveaxis(kspaceInput, 0, -1) # move coil to last
+    # kspLowRes = np.moveaxis(kspLowRes, 0, -1) # move coil to last
+    # subs  = [*subs[1:],subs[0]]
     #print(subs)
     # Calculate initial image and the reference phase map
-    im = fftn(np.conj(kspaceInput), axes=(0, 1, 2))  # The phase of Im might be wrong at this point
-    phase = ifftn(kspLowRes, axes=(0, 1, 2))
+    fft_dims = (1,2,3)
+    im = fftn(np.conj(kspaceInput), axes=fft_dims)  # The phase of Im might be wrong at this point
+    phase = ifftn(kspLowRes, axes=fft_dims)
     phase = np.exp(1j * np.angle(phase))
     phase = phase / np.prod(sz)
     im = np.abs(im) * phase
-
+    # print(f"{kspaceInput.flags=}")
+    # print(f"{im.flags=}")
     # Assuming previous definitions of sz, subs, kspaceInput, and phase
 
     # In the loop, determine where to copy the measured data
     tmp = np.zeros(shape=(sz[pfDim],), dtype=bool)  
     tmp[:numSamples] = 1
     measured_idx = ifftshift(tmp)==1
-    subs[pfDim] = np.nonzero(measured_idx)[0]
+    subs[pfDim+1] = np.nonzero(measured_idx)[0]
     kspaceInput = kspaceInput[tuple(subs)]
     # print("kspaceInput = kspaceInput[tuple(subs)]", subs)
     # Iteration loop
     for ii in range(iter):
-        im = fftn(im, axes=(0, 1, 2))        
+        im = fftn(im, axes=fft_dims)        
         im[tuple(subs)] = kspaceInput
         im = np.conj(im)
-        im = fftn(im, axes=(0, 1, 2))
+        im = fftn(im, axes=fft_dims)
         im = np.abs(im) * phase
 
 
@@ -193,31 +200,36 @@ def pocs_pf(kspaceInput, iter):
     tmp[:numSamples-Ntrans] = 1
     subsPure_idx = (ifftshift(tmp)==1)
     subsPure = subs.copy()
-    subsPure[pfDim] = np.nonzero(subsPure_idx)[0]
+    subsPure[pfDim+1] = np.nonzero(subsPure_idx)[0]
     #print(f"{subsPure=}")
     # Create subscripts where we want to have a smooth transition between measured and phase-corrected data
 
     subsTrans_idx = subsPure_idx
     subsTrans_idx = np.logical_and(measured_idx, np.logical_not(subsPure_idx))
     subsTrans = subs.copy()
-    subsTrans[pfDim] = np.nonzero(subsTrans_idx)[0]
+    subsTrans[pfDim+1] = np.nonzero(subsTrans_idx)[0]
     #print(f"{subsTrans=}")
-    # Build a filter for the transition
-   
-    tmp = hanning_without0(2*Ntrans + 1)
-    filterTrans = tmp[Ntrans+1:]
-    filterTrans = np.reshape(filterTrans, [*np.ones((pfDim,), dtype=int), Ntrans, 1])
-    filterTrans = np.tile(filterTrans[..., np.newaxis, np.newaxis], (1, ))
-    #print(f"{filterTrans.shape=}")
+
+
     # Separate data in unfiltered part and transition zone
     tmp = np.zeros(im.shape, dtype=kspaceInput.dtype)
     tmp[tuple(subs)] = kspaceInput
     kspPure = tmp[tuple(subsPure)]
     kspTrans = tmp[tuple(subsTrans)]
+    
+    # Build a filter for the transition
+   
+    tmp = hanning_without0(2*Ntrans + 1)
+    filterTrans = tmp[Ntrans+1:]
+    filtershape = [1]*kspTrans.ndim
+    filtershape[pfDim+1] = Ntrans
+    filterTrans = np.reshape(filterTrans, filtershape)
+    #print(f"{filterTrans.shape=}")
+
 
 
     # "im" becomes k-space signal, again
-    im = fftn(im, axes=(0, 1, 2))
+    im = fftn(im, axes=fft_dims)
 
     # Strict data consistency for numSamples-Ntrans samples
     im[tuple(subsPure)] = kspPure
@@ -231,14 +243,14 @@ def pocs_pf(kspaceInput, iter):
     kspFull = im
 
     # Convert "im" back to image
-    im = ifftn(im, axes=(0, 1, 2))
+    im = ifftn(im, axes=fft_dims)
 
     # Undo the prerequisites
     # Undo the permutations
-    im = np.moveaxis(im, -1, 0)
-    kspFull = np.moveaxis(kspFull, -1, 0)
+    # im = np.moveaxis(im, -1, 0)
+    # kspFull = np.moveaxis(kspFull, -1, 0)
     #print(f"{subs=}")
-    subs = [subs[-1], *subs[0:-1]]
+    # subs = [subs[-1], *subs[0:-1]]
     #print(f"{subs=}")
     # Undo the fftshifts
     # Assuming you have the cmshiftnd function translated into Python, here's how you'd call it
@@ -352,7 +364,3 @@ def ndWindowFilter(sz, pfDim, szSym, idxSym):
 
 def hanning_without0(n):
     return hann(n+2)[1:-1]
-    
-
-
-

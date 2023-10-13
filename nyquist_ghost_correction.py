@@ -51,8 +51,11 @@ Based on MATLAB implementation by Victor Xie et.al. at HKU BISP Lab.
 """
 import numpy as np
 from scipy.optimize import minimize
-from scipy.fft import fft, ifft, fftshift
-
+try:
+    from pyfftw.interfaces.numpy_fft import fft, ifft, fftshift
+except ImportError:
+    from scipy.fft import fft, ifft, fftshift
+    
 def oneDimLinearCorr_entropy(epi_kxkyzc_raw, nShot):
     org_size = epi_kxkyzc_raw.shape
 
