@@ -51,35 +51,42 @@ except ImportError:
         
 from scipy.signal.windows import hann
 
-def pf_recon_pocs_ms2d(ksp_kxkycz, iter, full_nX=None):
+def pf_recon_pocs_ms2d(kspin, iter, full_nX=None, pf_axis=0, slice_coil_axes=(-2,-1)):
     """
-    pf_recon_pocs_ms2d function only accepts 2d multislice data in [kx, ky, coil, slice]
-    kx should be the dim which pf is applied.
+    pf_recon_pocs_ms2d function accepts multislice k-space data (default in [kx, ky, slice, coil] order)
+    return kspFull, kspZpad
     """
+    # order dimensions
+    slice_axis, coil_axis = slice_coil_axes
+    assert slice_axis!=coil_axis, "please make sure different slice axis and coil axis"
+    ksp_kxkycz = np.moveaxis(kspin, (pf_axis, slice_axis, coil_axis), (0, -1, -2))
     # Get dimensions
     nX, nY, nC, nZ = ksp_kxkycz.shape
 
     # Handle the case where full_Nx is not provided
+    data_sum = np.sum(np.abs(ksp_kxkycz), axis=(1,2,3))
+    I = np.argmax(data_sum)
     if full_nX is None:
-        data_sum = np.sum(np.abs(ksp_kxkycz), axis=(1,2,3))
-        I = np.argmax(data_sum)
-        full_nX = 2*((nX - I))
+        full_nX = 2*((nX - I)) if I<nX//2 else 2*I
         print(f"auto detect peak at {I}; full Nx is {full_nX}")
         if full_nX <= nX:
             raise ValueError('data is not partial fourier')
 
     # Zero-pad
     kspZpad_kxkycz = np.zeros((full_nX, nY, nC, nZ), dtype=complex)
-    kspZpad_kxkycz[-nX:] = ksp_kxkycz
+    if I<nX//2:
+        kspZpad_kxkycz[-nX:] = ksp_kxkycz
+    else:
+        kspZpad_kxkycz[:nX] = ksp_kxkycz
 
     # Permute dimensions
     kspZpad_ckxkyz = np.transpose(kspZpad_kxkycz, (2,0,1,3))
 
     kspFull_ckxkyz = np.zeros((nC, full_nX, nY, nZ), dtype=complex)
-
-    for iSlice in range(nZ):
-        if (iSlice+1) % 5 == 0:  # +1 because Python uses 0-based indexing
-            print(f"processing slice {iSlice+1}/{nZ}")
+    import tqdm
+    for iSlice in tqdm.tqdm(range(nZ)):
+        # if (iSlice+1) % 5 == 0:  # +1 because Python uses 0-based indexing
+            # print(f"processing slice {iSlice+1}/{nZ}")
 
         # Call to pocs_tidy, assuming the function has been translated
         kspFull_ckxkyz[:,:,:,iSlice] = pocs_pf(kspZpad_ckxkyz[:,:,:,iSlice], iter).reshape((nC,full_nX,nY))
@@ -87,12 +94,14 @@ def pf_recon_pocs_ms2d(ksp_kxkycz, iter, full_nX=None):
         # If you are using the pocs_nd function, uncomment the following line and ensure it's translated
         # kspFull_ckxkyz[:,:,:,iSlice] = pocs_nd(kspZpad_ckxkyz[:,-nX:,:,iSlice], iter, 1)
 
-    print("done")
+    # print("done")
 
     # Reverse the permutation
     kspFull_kxkycz = np.transpose(kspFull_ckxkyz, (1,2,0,3))
+    kspFull_out = np.moveaxis(kspFull_kxkycz, (0, -1, -2), (pf_axis, slice_axis, coil_axis))
+    kspZpad_out = np.moveaxis(kspZpad_kxkycz, (0, -1, -2), (pf_axis, slice_axis, coil_axis))
 
-    return kspFull_kxkycz, kspZpad_kxkycz
+    return kspFull_out, kspZpad_out
 
 def pocs_pf(kspaceInput, iter):
     """
@@ -271,9 +280,6 @@ def pocs_pf(kspaceInput, iter):
         kspFull = np.reshape(kspFull, (Ny, Nx, -1))
     
     return kspFull
-
-
-# In[2]:
 
 
 def detectPFdim(smplPtrn, wasAddedCoilDim):

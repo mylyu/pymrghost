@@ -68,8 +68,9 @@ def oneDimLinearCorr_entropy(epi_kxkyzc_raw, nShot):
     assert epi_kxkyzc_lpcCor.shape[1]%2==0, "number of phase encoding must be a even number"
     middleSliceIndex = nSlice // 2
 
-    for iSlice in list(range(middleSliceIndex, nSlice)) + list(range(middleSliceIndex - 1, -1, -1)):
-        print(iSlice)
+    import tqdm
+    for iSlice in tqdm.tqdm(list(range(middleSliceIndex, nSlice)) + list(range(middleSliceIndex - 1, -1, -1))):
+        # print(iSlice)
         
         data_kyxc = fftshift(fft(np.transpose(epi_kxkyzc_raw[:, :, iSlice, :], (1, 0, 2)), axis=1), axes=1)
 
