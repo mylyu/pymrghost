@@ -40,7 +40,7 @@ def ifft2c(x, axes=(- 2, - 1)):
 
 def sos(x, axis=- 1):
     '''
-    root mean sum of squares, default on first dim
+    root mean sum of squares, default on last dim
     '''
     res = np.sqrt(np.sum(np.abs(x)**2, axis=axis))
     return res
