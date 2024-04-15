@@ -232,3 +232,65 @@ def GRAPPA_interpolate_imageSpace_2d(undersampled_kspace_kxkyc, acc_factors_2d, 
     # handle dimentions as input
     recon_kspace_kxkyc = np.moveaxis(recon_kspace_kxkyc, -1, coil_axis)
     return recon_kspace_kxkyc, image_coilcombined_sos, unmixing_map_coilWise
+
+
+def GRAPPA_interpolate_kSpace_2d(undersampled_kspace_kxkyc, acc_factors_2d, block_size, grappa_weights):
+    """
+    Interpolates missing k-space data using 2D GRAPPA for equidistant undersampling.
+    
+    Args:
+        undersampled_kspace_kxkyc (ndarray): The undersampled k-space data.
+        acc_factors_2d (tuple): Acceleration factors in the two dimensions.
+        block_size (tuple): Block size in the two dimensions.
+        grappa_weights (ndarray): Precomputed GRAPPA weights for interpolation.
+    
+    Returns:
+        tuple: A tuple containing:
+            - image_recon_sos (ndarray): The reconstructed image using Sum of Squares.
+            - kspace_coils (ndarray): The interpolated k-space data.
+    """
+    acc_factor1, acc_factor2 = acc_factors_2d
+    block_size1, block_size2 = block_size
+    mat_size1, mat_size2, Ncoil = undersampled_kspace_kxkyc.shape
+
+    margin_top_dim1 = acc_factor1 * (block_size1 // 2 + 1)
+    margin_bottom_dim1 = margin_top_dim1
+    margin_left_dim2 = acc_factor2 * (block_size2 // 2 + 1)
+    margin_right_dim2 = margin_left_dim2
+
+    padded_data = np.pad(undersampled_kspace_kxkyc, ((margin_top_dim1, margin_bottom_dim1), (margin_left_dim2, margin_right_dim2), (0, 0)), mode='constant', constant_values=0)
+
+    first_acquired_ky = np.nonzero(np.sum(np.abs(undersampled_kspace_kxkyc[:, :, 0]), axis=1))[0][0]
+    first_acquired_kx = np.nonzero(np.sum(np.abs(undersampled_kspace_kxkyc[:, :, 0]), axis=0))[0][0]
+    acquired_lines_dim1 = np.arange(first_acquired_ky, mat_size1, acc_factor1)
+    acquired_lines_dim2 = np.arange(first_acquired_kx, mat_size2, acc_factor2)
+
+    for iCoil in range(Ncoil):
+        for iType in range(1, acc_factor1 * acc_factor2):
+            y, x = np.divmod(iType, acc_factor1)
+            iPattern_dim1 = x
+            iPattern_dim2 = y
+
+            targetdim1_range = acquired_lines_dim1 + iPattern_dim1
+            targetdim2_range = acquired_lines_dim2 + iPattern_dim2
+
+            source_lines = np.zeros((block_size1, block_size2, len(targetdim1_range), len(targetdim2_range), Ncoil), dtype=complex)
+
+            for iBlock in range(block_size1):
+                for iColumn in range(block_size2):
+                    block_offset = -iPattern_dim1 - acc_factor1 * (block_size1 // 2 - 1) + iBlock * acc_factor1
+                    column_offset = -iPattern_dim2 - acc_factor2 * (block_size2 // 2 - 1) + iColumn * acc_factor2
+                    indices_1 = targetdim1_range + margin_top_dim1 + block_offset
+                    indices_2 = targetdim2_range + margin_left_dim2 + column_offset
+                    source_lines[iBlock, iColumn, :, :, :] = padded_data[np.ix_(indices_1, indices_2, range(Ncoil))]
+
+            source_matrix = np.transpose(source_lines, (2, 3, 0, 1, 4)).reshape(len(targetdim1_range) * len(targetdim2_range), block_size1 * block_size2 * Ncoil)
+            interpolated_k_space = source_matrix @ grappa_weights[iType - 1, iCoil, :].flatten()
+            padded_data[np.ix_(targetdim1_range + margin_top_dim1, targetdim2_range + margin_left_dim2, [iCoil])] = interpolated_k_space.reshape((len(targetdim1_range), len(targetdim2_range), 1))
+
+    kspace_coils = padded_data[margin_top_dim1:-margin_bottom_dim1, margin_left_dim2:-margin_right_dim2, :]
+    kspace_coils[undersampled_kspace_kxkyc != 0] = undersampled_kspace_kxkyc[undersampled_kspace_kxkyc != 0]
+
+    image_recon_sos = np.sqrt(np.sum(np.abs(np.fft.ifft2(kspace_coils)) ** 2, axis=2))
+
+    return image_recon_sos, kspace_coils
