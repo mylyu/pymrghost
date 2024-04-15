@@ -219,9 +219,6 @@ def GRAPPA_interpolate_imageSpace_2d(undersampled_kspace_kxkyc, acc_factors_2d, 
     for ii in range(Ncoil):
         I_coils[:, :, ii] = np.sum(I_aliased * unmixing_map_coilWise[:, :, ii, :], axis=2)
 
-    # Coil combination using sum of squares
-    image_coilcombined_sos = sos(I_coils)
-
     # Forward Fourier Transform to get back to k-space
     recon_kspace_kxkyc = fft2c(I_coils,axes=(0,1))
 
@@ -229,8 +226,12 @@ def GRAPPA_interpolate_imageSpace_2d(undersampled_kspace_kxkyc, acc_factors_2d, 
     acquired_positions = undersampled_kspace_kxkyc != 0
     recon_kspace_kxkyc[acquired_positions] = undersampled_kspace_kxkyc[acquired_positions]
 
+    # Coil combination using sum of squares
+    image_coilcombined_sos = sos(ifft2c(recon_kspace_kxkyc), -1)
+    
     # handle dimentions as input
     recon_kspace_kxkyc = np.moveaxis(recon_kspace_kxkyc, -1, coil_axis)
+    
     return recon_kspace_kxkyc, image_coilcombined_sos, unmixing_map_coilWise
 
 
