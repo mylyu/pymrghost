@@ -294,4 +294,4 @@ def GRAPPA_interpolate_kSpace_2d(undersampled_kspace_kxkyc, acc_factors_2d, bloc
 
     image_recon_sos = np.sqrt(np.sum(np.abs(np.fft.ifft2(kspace_coils)) ** 2, axis=2))
 
-    return image_recon_sos, kspace_coils
+    return kspace_coils， image_recon_sos
