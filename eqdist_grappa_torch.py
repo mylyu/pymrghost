@@ -126,7 +126,7 @@ def GRAPPA_interpolate_imageSpace_2d_torch(undersampled_kspace_kxkyc, acc_factor
     
     recon_kspace_kxkyc = fft2c(I_coils, (0,1))
     recon_kspace_kxkyc[undersampled_kspace_kxkyc != 0] = undersampled_kspace_kxkyc[undersampled_kspace_kxkyc != 0]
-    image_coilcombined_sos = torch.sqrt(torch.sum(torch.abs(ifft2c(recon_kspace_kxkyc))**2, dim=2))
+    image_coilcombined_sos = torch.sqrt(torch.sum(torch.abs(ifft2c(recon_kspace_kxkyc,(0,1)))**2, dim=2))
     
     recon_kspace_kxkyc = torch.movedim(recon_kspace_kxkyc, -1, coil_axis)
     return recon_kspace_kxkyc, image_coilcombined_sos, unmixing_map_coilWise
